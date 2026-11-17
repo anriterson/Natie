@@ -52,6 +52,10 @@ nav{position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:60;displ
 .cta{display:flex;gap:1rem;flex-wrap:wrap}
 .badge{display:inline-flex;gap:.6rem;align-items:center;border:1px solid var(--line);padding:.4rem 1rem;border-radius:99px;font-size:.8rem;color:var(--mute);margin-bottom:1.6rem;background:var(--glass)}
 .badge i{width:7px;height:7px;border-radius:50%;background:#fff;animation:blink 1.6s infinite}
+.online-count{display:inline-flex;align-items:center;gap:.55rem;border:1px solid var(--line);border-radius:99px;padding:.4rem .9rem;margin:0 0 1.6rem .5rem;background:var(--glass);color:var(--mute);font-size:.78rem}
+.online-count i{width:7px;height:7px;border-radius:50%;background:#777;flex:none}
+.online-count.ready{color:var(--fg)}.online-count.ready i{background:#3ddc84;box-shadow:0 0 10px rgba(61,220,132,.65);animation:blink 1.6s infinite}
+.online-count.error{color:#ff8a8a}
 @keyframes blink{50%{opacity:.2}}
 
 /* video stack */
@@ -744,6 +748,7 @@ nav{width:min(1280px,98vw);gap:1rem;padding:.55rem .6rem .55rem 1.3rem}
   <div>
     <a class="xtag fade" id="xTag" href="#quests" hidden><svg class="i" aria-hidden="true"><use href="#i-tree"/></svg> Christmas Update <span id="xTagCd"></span></a>
     <div class="badge fade"><i></i>Free for every editor</div>
+    <div class="online-count fade" id="onlineCount" role="status" aria-live="polite"><i></i><span id="onlineCountText">Live count setup required</span></div>
     <h1><span>Wanna edit</span><span class="o">like Nate?</span><span>Join our Discord.</span></h1>
     <p class="fade">Learn the shakes, get rated, and grab the apps we edit with. Everything in one place, free.</p>
     <div class="typer fade">Learn <b id="tw"></b></div>
@@ -1028,6 +1033,54 @@ const apps=[
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
 let user=null,sb=null;
 const live=false; /* no backend: accounts and data stay in this browser */
+
+/* Copy these from Supabase Project Settings > API. Use only the public anon/publishable key, never service_role/secret. */
+const ONLINE_SUPABASE_URL="";
+const ONLINE_SUPABASE_PUBLIC_KEY="";
+const onlineCount=$("#onlineCount"),onlineCountText=$("#onlineCountText");
+function onlineStatus(text,state){
+ onlineCountText.textContent=text;
+ onlineCount.classList.toggle("ready",state==="ready");
+ onlineCount.classList.toggle("error",state==="error");
+}
+function newOnlineVisitorId(){
+ if(window.crypto&&typeof crypto.randomUUID==="function")return crypto.randomUUID();
+ if(window.crypto&&typeof crypto.getRandomValues==="function"){
+  const bytes=new Uint8Array(16);crypto.getRandomValues(bytes);return Array.from(bytes,b=>b.toString(16).padStart(2,"0")).join("");
+ }
+ return Date.now()+"-"+Math.random().toString(36).slice(2);
+}
+function onlineVisitorId(){
+ const key="tiko_online_visitor";
+ try{let id=localStorage.getItem(key);if(!id){id=newOnlineVisitorId();localStorage.setItem(key,id)}return id}
+ catch(e){return newOnlineVisitorId()}
+}
+async function startOnlineCounter(){
+ if(!ONLINE_SUPABASE_URL||!ONLINE_SUPABASE_PUBLIC_KEY){
+  onlineStatus("Set Supabase URL + public key in index.html");return;
+ }
+ try{
+  const{createClient}=await import("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm");
+  const client=createClient(ONLINE_SUPABASE_URL,ONLINE_SUPABASE_PUBLIC_KEY);
+  const channel=client.channel("tiko-site-online",{config:{presence:{key:onlineVisitorId()}}});
+  channel.on("presence",{event:"sync"},()=>{
+   onlineStatus(Object.keys(channel.presenceState()).length+" visitors online now","ready");
+  }).subscribe(status=>{
+   if(status==="SUBSCRIBED"){
+    channel.track({online_at:new Date().toISOString()}).then(({error})=>{
+     if(error){console.error("Live visitor count could not join Presence:",error);onlineStatus("Live count unavailable","error")}
+    }).catch(error=>{console.error("Live visitor count could not join Presence:",error);onlineStatus("Live count unavailable","error")});
+   }else if(status==="CHANNEL_ERROR"||status==="TIMED_OUT"||status==="CLOSED"){
+    console.error("Live visitor count Realtime channel status:",status);
+    onlineStatus("Live count unavailable","error");
+   }
+  });
+ }catch(error){
+  console.error("Live visitor count could not start:",error);
+  onlineStatus("Live count unavailable","error");
+ }
+}
+startOnlineCounter();
 
 $("#grid").innerHTML=apps.map(a=>`<div class="card rv"><div class="ico">${IC(a.i)}</div><h3>${a.n}</h3><p>${a.d}</p><a class="btn" href="${a.u}" target="_blank" rel="noopener" data-lock>Open official page</a></div>`).join("");
 $$(".card").forEach(c=>c.onmousemove=e=>{const r=c.getBoundingClientRect();c.style.setProperty("--x",e.clientX-r.left+"px");c.style.setProperty("--y",e.clientY-r.top+"px")});
